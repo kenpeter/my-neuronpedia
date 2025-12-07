@@ -288,9 +288,9 @@ model Model {
   instruct         Boolean @default(false)
 
   /// @zod.number.int().min(0)
-  layers               Int
+  layers               Int?
   /// @zod.number.int().min(0)
-  neuronsPerLayer      Int
+  neuronsPerLayer      Int?
   createdAt            DateTime              @default(now())
   /// @zod.custom.use(z.string().trim().min(1))
   owner                String
@@ -445,7 +445,7 @@ model SourceSet {
 
   description  String
   type         String         @default("")
-  creatorName  String
+  creatorName  String?
   urls         String[]
   creatorEmail String?
   creatorId    String

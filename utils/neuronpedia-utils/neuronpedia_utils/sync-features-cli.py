@@ -17,12 +17,13 @@ import argparse
 import psycopg2
 from typing import Optional, List, Tuple
 from urllib.request import urlopen
-from datetime import datetime
+from datetime import datetime, timezone
 import pickle
 from pathlib import Path
 
 DATASET_BASE_URL = "https://neuronpedia-datasets.s3.us-east-1.amazonaws.com/v1"
 STATE_FILE = ".sync_state.pkl"
+CACHE_DIR = ".sync_cache"
 
 
 def load_env_file(env_file_path: str):
@@ -129,11 +130,41 @@ def get_db_connection():
 
 
 def download_and_decompress(url: str) -> str:
-    """Download and decompress gzipped file from URL."""
+    """Download and decompress gzipped file from URL with local caching."""
+    # Create cache directory if it doesn't exist
+    cache_dir = Path(CACHE_DIR)
+    cache_dir.mkdir(exist_ok=True)
+
+    # Generate cache file path from URL
+    # Extract meaningful parts: model-id/source-id/type/filename
+    url_parts = url.replace(DATASET_BASE_URL + '/', '').split('/')
+    cache_subdir = cache_dir / '/'.join(url_parts[:-1])
+    cache_subdir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_subdir / url_parts[-1]
+
+    # Check if cached file exists
+    if cache_file.exists():
+        print(f"  Using cached: {cache_file}")
+        try:
+            with open(cache_file, 'rb') as f:
+                compressed_data = f.read()
+                if url.endswith('.gz'):
+                    return gzip.decompress(compressed_data).decode('utf-8')
+                return compressed_data.decode('utf-8')
+        except Exception as e:
+            print(f"  Cache read error, re-downloading: {e}")
+            # If cache is corrupted, continue to download
+
+    # Download file
     print(f"  Downloading: {url}")
     try:
         with urlopen(url) as response:
             compressed_data = response.read()
+
+            # Save to cache
+            with open(cache_file, 'wb') as f:
+                f.write(compressed_data)
+
             if url.endswith('.gz'):
                 return gzip.decompress(compressed_data).decode('utf-8')
             return compressed_data.decode('utf-8')
@@ -217,8 +248,7 @@ def import_jsonl_batch(conn, table_name: str, jsonl_string: str, feature_range: 
                 # Handle null createdAt - use current timestamp if null
                 created_at = data.get('createdAt')
                 if created_at is None:
-                    from datetime import datetime
-                    created_at = datetime.utcnow().isoformat()
+                    created_at = datetime.now(timezone.utc).isoformat()
 
                 cursor.execute('''
                     INSERT INTO "Neuron" (
@@ -254,6 +284,15 @@ def import_jsonl_batch(conn, table_name: str, jsonl_string: str, feature_range: 
                         if not (feature_range[0] <= feature_idx <= feature_range[1]):
                             continue
 
+                # Check if referenced neuron exists
+                cursor.execute(
+                    'SELECT 1 FROM "Neuron" WHERE "modelId" = %s AND layer = %s AND index = %s',
+                    (data['modelId'], data['layer'], index_str)
+                )
+                if not cursor.fetchone():
+                    # Skip this activation as the neuron doesn't exist
+                    continue
+
                 # Insert activation
                 # Convert arrays to PostgreSQL format
                 tokens = data.get('tokens', [])
@@ -262,8 +301,7 @@ def import_jsonl_batch(conn, table_name: str, jsonl_string: str, feature_range: 
                 # Handle null createdAt - use current timestamp if null
                 created_at = data.get('createdAt')
                 if created_at is None:
-                    from datetime import datetime
-                    created_at = datetime.utcnow().isoformat()
+                    created_at = datetime.now(timezone.utc).isoformat()
 
                 cursor.execute('''
                     INSERT INTO "Activation" (
@@ -294,8 +332,7 @@ def import_jsonl_batch(conn, table_name: str, jsonl_string: str, feature_range: 
                 # Handle null createdAt - use current timestamp if null
                 created_at = data.get('createdAt')
                 if created_at is None:
-                    from datetime import datetime
-                    created_at = datetime.utcnow().isoformat()
+                    created_at = datetime.now(timezone.utc).isoformat()
 
                 cursor.execute('''
                     INSERT INTO "Explanation" (
@@ -307,14 +344,15 @@ def import_jsonl_batch(conn, table_name: str, jsonl_string: str, feature_range: 
                     data.get('text'), data.get('creatorId'), created_at
                 ))
                 imported_count += 1
+                # Commit after each successful insert to avoid losing data on errors
+                conn.commit()
 
         except Exception as e:
             print(f"    Error importing line: {e}")
-            # Rollback this transaction so we can continue
+            # Rollback only the failed transaction
             conn.rollback()
             continue
 
-    conn.commit()
     cursor.close()
     return imported_count
 
@@ -356,10 +394,16 @@ def import_metadata(conn, base_path: str, model_id: str):
             if line.strip():
                 data = json.loads(line)
                 cursor.execute(
-                    'INSERT INTO "Model" (id, instruct, "displayName", "creatorId", "createdAt") '
-                    'VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING',
+                    'INSERT INTO "Model" (id, instruct, "displayName", "displayNameShort", "creatorId", "createdAt", '
+                    'owner, layers, "neuronsPerLayer", website, visibility, dimension, "inferenceEnabled", "tlensId", '
+                    '"defaultSourceSetName", "defaultSourceId", "updatedAt") '
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING',
                     (data['id'], data.get('instruct', False), data.get('displayName'),
-                     data.get('creatorId'), data.get('createdAt'))
+                     data.get('displayNameShort'), data.get('creatorId'), data.get('createdAt'),
+                     data.get('owner'), data.get('layers'), data.get('neuronsPerLayer'),
+                     data.get('website'), data.get('visibility', 'PRIVATE'), data.get('dimension'),
+                     data.get('inferenceEnabled', False), data.get('tlensId'),
+                     data.get('defaultSourceSetName'), data.get('defaultSourceId'), data.get('updatedAt'))
                 )
         conn.commit()
     except Exception as e:
@@ -372,12 +416,21 @@ def import_metadata(conn, base_path: str, model_id: str):
         for line in sourceset_data.strip().split('\n'):
             if line.strip():
                 data = json.loads(line)
+                # Convert urls to PostgreSQL array format if it's a list
+                urls = data.get('urls', [])
+                if isinstance(urls, list):
+                    urls_array = '{' + ','.join(f'"{url}"' for url in urls) + '}'
+                else:
+                    urls_array = '{}'
+
                 cursor.execute(
-                    'INSERT INTO "SourceSet" ("modelId", name, description, visibility, "releaseName", "creatorId", "createdAt") '
-                    'VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING',
+                    'INSERT INTO "SourceSet" ("modelId", name, description, visibility, "releaseName", "creatorId", "createdAt", '
+                    '"creatorName", type, urls, "creatorEmail") '
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::text[], %s) ON CONFLICT DO NOTHING',
                     (data['modelId'], data['name'], data.get('description'),
                      data.get('visibility', 'PUBLIC'), data.get('releaseName'),
-                     data.get('creatorId'), data.get('createdAt'))
+                     data.get('creatorId'), data.get('createdAt'),
+                     data.get('creatorName'), data.get('type', ''), urls_array, data.get('creatorEmail'))
                 )
         conn.commit()
     except Exception as e:

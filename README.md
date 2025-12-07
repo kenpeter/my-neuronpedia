@@ -783,8 +783,7 @@ Benefits over the admin panel:
 
 
 
-
-  python neuronpedia_utils/sync-features-cli.py \
+python neuronpedia_utils/sync-features-cli.py \
   --model-id pythia-70m-deduped \
   --layer-range 0-5 \
   --source-prefix res-sm \
