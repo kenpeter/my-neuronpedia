@@ -582,3 +582,211 @@ The instructions below demonstrate how to download the `gpt2-small`@`10-res-jb` 
 In the webapp, the `Search Explanations` feature requires you to set an `OPENAI_API_KEY`. Otherwise you will get no search results.
 
 This is because the `search explanations` functionality searches for features by semantic similarity. If you search `cat`, it will also return `feline`, `tabby`, `animal`, etc. To do this, it needs to calculate the embedding for your input `cat`. We use openai's embedding api (specifically, `text-embedding-3-large` with `dimension: 256`) to calculate the embeddings.
+
+
+
+ror: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired. Please obtain a new token or refresh your existing token."},"request_id":"req_011CVfMRJdDByLRWToy2SVfL"} · Please run /login
+how to install it
+Based on the repository structure and the CLAUDE.md file, here's how to install:
+Prerequisites
+Node.js (for webapp)
+Python with Poetry (for inference/autointerp services)
+Installation Steps
+Webapp:
+cd apps/webapp
+npm install
+Inference Service:
+cd apps/inference
+poetry install
+Autointerp Service:
+cd apps/autointerp
+poetry install .
+Run Development Server
+Webapp (local database):
+cd apps/webapp
+npm run dev:localhost
+Webapp (demo):
+cd apps/webapp
+npm run dev:demo
+Inference:
+cd apps/inference
+poetry run python start.py
+Autointerp:
+cd apps/autointerp
+poetry run python server.py
+If there's a root-level setup script or additional configuration needed, check the README.md for more details.
+
+
+# 1. Update and install PostgreSQL
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+
+# 2. Start PostgreSQL service
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# 3. Create database and user
+sudo -u postgres psql -c "CREATE DATABASE neuronpedia;"
+sudo -u postgres psql -c "CREATE USER neuronpedia_user WITH PASSWORD 'password';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE neuronpedia TO neuronpedia_user;"
+sudo -u postgres psql -d neuronpedia -c "GRANT ALL ON SCHEMA public TO neuronpedia_user;"
+
+
+
+To run the SmolLM-135M model, you need to start the inference service which handles model loading and computation. Based on the selected line and the model you want to run:
+Start the webapp (already running):
+cd apps/webapp && npm run dev:localhost
+Start the inference service (in a separate terminal):
+cd apps/inference && poetry install && poetry run python start.py
+The inference service will download and run the SmolLM-135M model from HuggingFace when you select it in the webapp interface.
+
+
+cd apps/graph && poetry install && poetry run python start.py 
+
+
+
+# Sync specific feature range (your use case)
+python utils/neuronpedia-utils/neuronpedia_utils/sync-features-cli.py \
+  --model-id qwen3-4b \
+  --source-id 0-transcoder-hp \
+  --feature-range 0-35
+
+# Sync all features
+python utils/neuronpedia-utils/neuronpedia_utils/sync-features-cli.py \
+  --model-id qwen3-4b \
+  --source-id 0-transcoder-hp
+
+# Resume interrupted sync
+python utils/neuronpedia-utils/neuronpedia_utils/sync-features-cli.py \
+  --model-id qwen3-4b \
+  --source-id 0-transcoder-hp \
+  --resume
+
+# Skip explanations (faster)
+python utils/neuronpedia-utils/neuronpedia_utils/sync-features-cli.py \
+  --model-id qwen3-4b \
+  --source-id 0-transcoder-hp \
+  --skip-explanations
+
+
+rm .sync_state.pkl.qwen3-4b.0-transcoder-hp
+
+# Run fresh sync
+DATABASE_URL="postgresql://neuronpedia_user:password@localhost:5432/neuronpedia" python utils/neuronpedia-utils/neuronpedia_utils/sync-features-cli.py \
+  --model-id qwen3-4b \
+  --source-id 0-transcoder-hp \
+  --feature-range 0-35
+
+
+DATABASE_URL="postgresql://neuronpedia_user:password@localhost:5432/neuronpedia" \
+  python utils/neuronpedia-utils/neuronpedia_utils/sync-features-cli.py \
+  --model-id qwen3-4b \
+  --layer-range 0-25 \
+  --skip-explanations \
+  --resume
+  
+
+
+  cd /home/kenpeter/work/neuronpedia/apps/graph && export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring && poetry run python start.py --model_id Qwen/Qwen3-4B --transcoder_set mwhanna/qwen3-4b-transcoders
+
+
+
+
+# Download the Qwen3-4B model
+huggingface-cli download Qwen/Qwen3-4B --local-dir ~/.cache/huggingface/hub/models--Qwen--Qwen3-4B
+
+# Download the transcoders
+huggingface-cli download mwhanna/qwen3-4b-transcoders --local-dir ~/.cache/huggingface/hub/models--mwhanna--qwen3-4b-transcoders
+
+
+
+# Create directory
+mkdir -p ~/.cache/huggingface/hub/models--mwhanna--qwen3-4b-transcoders/snapshots/main
+cd ~/.cache/huggingface/hub/models--mwhanna--qwen3-4b-transcoders/snapshots/main
+
+# Set token
+export HF_TOKEN=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
+
+# Download config files (small)
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/mwhanna/qwen3-4b-transcoders/resolve/main/config.yaml
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/mwhanna/qwen3-4b-transcoders/resolve/main/README.md
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/mwhanna/qwen3-4b-transcoders/resolve/main/wandb-config.yaml
+
+# Download all 36 layer files (1.68GB each = 60GB total)
+for i in {0..35}; do
+  wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/mwhanna/qwen3-4b-transcoders/resolve/main/layer_${i}.safetensors
+done
+Combined script to download BOTH Qwen3-4B model AND transcoders:
+#!/bin/bash
+export HF_TOKEN=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
+
+# Download Qwen3-4B model (~8GB)
+echo "Downloading Qwen3-4B model..."
+mkdir -p ~/.cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/main
+cd ~/.cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/main
+
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/config.json
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/generation_config.json
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/model.safetensors.index.json
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/tokenizer_config.json
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/vocab.json
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/merges.txt
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/tokenizer.json
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/model-00001-of-00003.safetensors
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/model-00002-of-00003.safetensors
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/Qwen/Qwen3-4B/resolve/main/model-00003-of-00003.safetensors
+
+# Download transcoders (~60GB)
+echo "Downloading transcoders (36 layers, ~60GB)..."
+mkdir -p ~/.cache/huggingface/hub/models--mwhanna--qwen3-4b-transcoders/snapshots/main
+cd ~/.cache/huggingface/hub/models--mwhanna--qwen3-4b-transcoders/snapshots/main
+
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/mwhanna/qwen3-4b-transcoders/resolve/main/config.yaml
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/mwhanna/qwen3-4b-transcoders/resolve/main/README.md
+wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/mwhanna/qwen3-4b-transcoders/resolve/main/wandb-config.yaml
+
+for i in {0..35}; do
+  echo "Downloading layer_${i}.safetensors..."
+  wget -c --header="Authorization: Bearer $HF_TOKEN" https://huggingface.co/mwhanna/qwen3-4b-transcoders/resolve/main/layer_${i}.safetensors
+done
+
+echo "Done! Total downloaded: ~68GB"
+
+
+poetry install
+
+
+poetry run python start.py --model_id Qwen/Qwen3-4B --transcoder_set mwhanna/qwen3-4b-transcoders
+
+
+cd /home/kenpeter/work/neuronpedia/apps/graph
+poetry run python start.py --model_id google/gemma-2-2b --transcoder_set gemma --device cpu
+
+
+
+cd /home/kenpeter/work/neuronpedia/utils/neuronpedia-utils
+
+# Sync gemma-2-2b clt-hp layers 0-25 (resumable!)
+python neuronpedia_utils/sync-features-cli.py \
+  --model-id gemma-2-2b \
+  --layer-range 0-25 \
+  --source-prefix clt-hp \
+  --skip-explanations
+
+
+Benefits over the admin panel:
+✅ Runs in terminal - no browser refresh issues
+✅ Auto-saves progress - Ctrl+C anytime, resume with --resume
+✅ Updates database directly - same result as admin panel
+✅ Faster - downloads directly from S3 to database
+
+
+
+
+
+  python neuronpedia_utils/sync-features-cli.py \
+  --model-id pythia-70m-deduped \
+  --layer-range 0-5 \
+  --source-prefix res-sm \
+  --skip-explanations \
+  --resume

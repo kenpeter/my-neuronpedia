@@ -142,3 +142,6 @@ dist
 .secrets*
 
 CLAUDE.local.md
+
+# Neuronpedia sync state files
+.sync_state.pkl*

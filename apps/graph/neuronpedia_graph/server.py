@@ -45,9 +45,8 @@ if not SECRET_KEY:
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 if not HF_TOKEN:
-    raise ValueError(
-        "HF_TOKEN environment variable not set. Please create a .env file with HF_TOKEN=<your_huggingface_token>"
-    )
+    print("Warning: HF_TOKEN not set. Will try to use cached models from HuggingFace cache.")
+    HF_TOKEN = None
 
 
 def get_device() -> torch.device:
